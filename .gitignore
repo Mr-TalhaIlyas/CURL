@@ -5,9 +5,9 @@
 *.mkv
 *.chkpt
 *.log
-*.jpg
-*.jpeg
-*.png
+# *.jpg
+# *.jpeg
+# *.png
 # ignore all model files
 *.pth
 # ignore all data files
