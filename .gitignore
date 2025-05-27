@@ -1,0 +1,18 @@
+# ignore all video, chkpt, and log files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.chkpt
+*.log
+*.jpg
+*.jpeg
+*.png
+# ignore all model files
+*.pth
+# ignore all data files
+*.csv
+# ignore all temporary files
+*.tmp
+# ignore all cache files
+*.cache
