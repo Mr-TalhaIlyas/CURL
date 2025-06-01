@@ -7,3 +7,5 @@ Contrastive Ultrasound Video Representation Learning (CURL) is a novel self-supe
 ## Setup
 
 Install requirements.txt
+
+## Data Preparation

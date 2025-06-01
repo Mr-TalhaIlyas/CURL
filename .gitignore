@@ -16,3 +16,4 @@
 *.tmp
 # ignore all cache files
 *.cache
+*.pyc
