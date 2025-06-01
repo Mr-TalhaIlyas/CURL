@@ -50,8 +50,8 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchmetrics import Accuracy
 from fmutils import fmutils as fmu
-from functools import partial
-import cv2, random, math, datetime, time
+
+import cv2, random
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
@@ -62,10 +62,11 @@ from tqdm import tqdm
 from data.simclr_loader import GEN_DATA_LISTS, SimCLR_FetalDataset
 from data.utils import custom_collate_fn, values_fromreport, print_formatted_table
 
-# from models.simclr_slowfast import SimCLR, SlowFast_Encoder
-from models.mae.model_mae import MaskedAutoencoderViT
+from models.simclr_slowfast import SimCLR, SlowFast_Encoder
 from models.utils.lr_scheduler import LR_Scheduler
-from models.utils.tools import save_chkpt, add_weight_decay
+from models.utils.tools import save_chkpt
+from tools.simclr_training import SimCLR_Trainer, DualContrastiveTrainer
+
 
 from sklearn.metrics import confusion_matrix, classification_report
 
@@ -73,8 +74,7 @@ from models.utils.visualization import display_video, display_video_lbl, show_ba
 from tsaug.visualization import plot
 from IPython.display import HTML
 from tools.inference import print_classification_report
-from models.utils.tools import NativeScalerWithGradNormCount as NativeScaler
-from data.utils import video_transform
+
 #%%
 num_classes = config['num_classes']
 sub_classes = 1
@@ -122,41 +122,29 @@ if config['sanity_check']:
 
 # %%
 
-model = MaskedAutoencoderViT(img_size=224,
-                                patch_size=16,
-                                in_chans=3,
-                                num_frames=16,
-                                t_patch_size=2,
-                                embed_dim=1024,
-                                depth=24,
-                                num_heads=16,
-                                mlp_ratio=4,
-                                norm_layer=partial(nn.LayerNorm, eps=1e-6))
+encoder = SlowFast_Encoder(config['model'])
+model = SimCLR(encoder)
 model.to(DEVICE)
 
-param_groups = add_weight_decay(model,
-                                config['mae']['weight_decay'],
-                                bias_wd=config['mae']['bias_wd'])
+optimizer = torch.optim.AdamW([{'params': model.parameters(),
+                                'lr':config['learning_rate']}],
+                                weight_decay=config['WEIGHT_DECAY'])
 
-optimizer = optimizer =  torch.optim._multi_tensor.AdamW(
-                                param_groups,
-                                lr=config['mae']['blr'],  # No global weight decay; use parameter-specific decay
-                                weight_decay=0.0,
-                                betas=(0.9, 0.95))
+scheduler = LR_Scheduler(config['lr_schedule'], config['learning_rate'], config['epochs'],
+                         iters_per_epoch=len(train_loader), warmup_epochs=config['warmup_epochs'])
 
-scheduler = LR_Scheduler(config['lr_schedule'], config['mae']['blr'], config['epochs'],
-                         iters_per_epoch=len(train_loader), warmup_epochs=config['mae']['warmup_epochs'])
-
-# accuracy = Accuracy(task="multiclass", num_classes=num_classes)
-loss_scaler = NativeScaler(fp32=config['mae']['fp32'])
-
-# trainer = MAEViT_Trainer(model, optimizer)
-
+# Choose trainer based on configuration
+if config.get('enable_temporal_loss', False) and config.get('dual_loss_mode', 'both') in ['temporal_only', 'both']:
+    print("Using DualContrastiveTrainer")
+    trainer = DualContrastiveTrainer(model, optimizer, config)
+else:
+    print("Using standard SimCLR_Trainer")  
+    trainer = SimCLR_Trainer(model, optimizer)
 #%%
 # Initializing plots
 if config['LOG_WANDB']:
     wandb.watch(model, log='parameters', log_freq=100)
-    wandb.log({ "total_loss": 1, "learning_rate": 0}, step=0)
+    wandb.log({ "total_loss": 10, "learning_rate": 0}, step=0)
     
 #%%
 # num_repeats_per_epoch = config['num_repeats_per_epoch']
@@ -165,58 +153,67 @@ start_epoch = 0
 epoch, best_loss = 0, 5
 total_avg_acc = []
 
-# get time for each epoch
-
 for epoch in range(start_epoch, config['epochs']):
-    start_time = time.time()
-    model.train() # <-set mode important
+    model.train()
     trloss = []
+    spatial_losses = []
+    temporal_losses = []
     
     for step, data_batch in enumerate(train_loader):
-
-        optimizer.zero_grad()
         scheduler(optimizer, step, epoch)
-
-        vid_i = video_transform(data_batch['vid_i']).to(DEVICE)
-        vid_j = video_transform(data_batch['vid_j']).to(DEVICE)
-        vid = torch.cat([vid_i, vid_j], dim=0)
-
-        with torch.cuda.amp.autocast(enabled=not config['mae']['fp32']):
-            loss, _, _ = model(vid, config['mae']['mask_ratio'])
         
-        loss_value = loss.item()
-
-        if not math.isfinite(loss_value):
-            raise Exception("Loss is {}, stopping training".format(loss_value))
-
-        loss_scaler(loss,
-                    optimizer, 
-                    clip_grad=config['mae']['clip_grad'],
-                    parameters=model.parameters(),
-                    update_grad=True # (data_iter_step + 1) % accum_iter == 0 -> for DDP
-                    )
-
-        # for printing
-        trloss.append(loss_value)
-        # print(loss)
-    print(f'Epoch: {epoch+1}/{config["epochs"]}=> Average loss: {np.nanmean(trloss):.4f}')
+        # Training step - returns different formats based on trainer type
+        if isinstance(trainer, DualContrastiveTrainer):
+            loss_components = trainer.training_step(data_batch)
+            total_loss = loss_components['total_loss']
+            trloss.append(total_loss)
+            
+            # Track individual loss components
+            if 'spatial_loss' in loss_components:
+                spatial_losses.append(loss_components['spatial_loss'])
+            if 'temporal_loss' in loss_components:
+                temporal_losses.append(loss_components['temporal_loss'])
+                
+        else:
+            # Standard SimCLR trainer
+            loss = trainer.training_step(data_batch)
+            trloss.append(loss)
     
-    mean_loss = np.nanmean(trloss)
-    current_loss = mean_loss  # np.nanmean(test_acc)
+    # Logging
+    avg_total_loss = np.nanmean(trloss)
+    log_message = f'Epoch: {epoch+1}/{config["epochs"]} => Total Loss: {avg_total_loss:.4f}'
+    
+    if spatial_losses:
+        avg_spatial_loss = np.nanmean(spatial_losses)
+        log_message += f', Spatial Loss: {avg_spatial_loss:.4f}'
+        
+    if temporal_losses:
+        avg_temporal_loss = np.nanmean(temporal_losses)
+        log_message += f', Temporal Loss: {avg_temporal_loss:.4f}'
+    
+    print(log_message)
+    
+    # Save best model
+    current_loss = avg_total_loss
     if current_loss < best_loss and epoch != 0:
         best_loss = current_loss
-        chkpt = save_chkpt(model, optimizer, epoch, loss=np.nanmean(trloss),
+        chkpt = save_chkpt(model, optimizer, epoch, loss=avg_total_loss,
                             acc=0, return_chkpt=True)
         print(40*'$')
         
+    # Wandb logging
     if config['LOG_WANDB']:
-        wandb.log({"total_loss": np.nanmean(trloss),
-                   "learning_rate": optimizer.param_groups[0]['lr']}, step=epoch+1)
-    print(f'learning rate: {optimizer.param_groups[0]["lr"]}')
-
-    end_time = time.time()
-    seconds = end_time - start_time
-    print(f'Time taken for epoch: {str(datetime.timedelta(seconds=seconds))}')
+        log_dict = {
+            "total_loss": avg_total_loss,
+            "learning_rate": optimizer.param_groups[0]['lr']
+        }
+        
+        if spatial_losses:
+            log_dict["spatial_loss"] = avg_spatial_loss
+        if temporal_losses:
+            log_dict["temporal_loss"] = avg_temporal_loss
+            
+        wandb.log(log_dict, step=epoch+1)
 
 if config['LOG_WANDB']:
     wandb.run.finish()

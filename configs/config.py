@@ -43,8 +43,42 @@ config = dict(
                 epochs= 100,
                 warmup_epochs= 2,
                 WEIGHT_DECAY= 0.0005,
-                # AUX_LOSS_Weights= 0.4,
+                AUX_LOSS_Weights= 0.4,
+                # MAE Contrastive Learning Settings
+                mae_contrastive = dict(
+                    img_size=224,
+                    patch_size=16,
+                    in_chans=3,
+                    embed_dim=1024,
+                    depth=24,
+                    num_heads=16,
+                    mlp_ratio=4.0,
+                    num_frames=16,
+                    t_patch_size=2,
+                    projection_dim=256,        # For spatial contrastive
+                    temporal_projection_dim=128, # For temporal contrastive
+                    use_cls_token=True,
+                ),
+                
+                # Dual Contrastive Loss Settings (updated)
+                enable_temporal_loss = True,
+                spatial_loss_weight = 1.0,
+                temporal_loss_weight = 0.5,
+                temperature_spatial = 0.5,
+                temperature_temporal = 0.1,
+                tc_clusters = 8,
+                tc_num_iters = 10,
+                tc_do_entro = True,
+                dual_loss_mode = 'both',  # 'spatial_only', 'temporal_only', 'both'
 
+                # Temporal Contrastive Loss Parameters  
+                tc_clusters = 10,                # Number of clusters for KMeans
+                tc_num_iters = 10,             # KMeans iterations
+                tc_do_entro = True,            # Enable IID regularization
+                
+                # Training with dual loss
+                dual_loss_mode = 'both',       # 'spatial_only', 'temporal_only', 'both'
+                
                 # '''
                 # Dataset
                 # '''
@@ -69,7 +103,14 @@ config = dict(
                 model = config_model.mme,
                 mae = config_model.mae,
                 mae_finetune = config_model.mae_finetune,
-                # AUGMENTATIONS
+                # Fine-tuning specific parameters
+                finetune_model_type = 'contrastive_mae',  # 'standard_mae' or 'contrastive_mae'
+                contrastive_checkpoint_path = '/home/user01/Data/fetal/chkpts/contrastive_mae_best.pth',
+                mae_checkpoint_path = '/home/user01/Data/fetal/chkpts/MAE_ViT_2.pth',
+                
+                # Training configuration
+                loss_type = 'focal',  # 'focal', 'cross_entropy', 'label_smoothing'
+                scheduler_type = 'cyclic',  # 'cyclic' or 'cosine'
 
 
                 lbl_ints = {

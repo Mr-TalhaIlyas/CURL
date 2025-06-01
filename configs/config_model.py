@@ -5,8 +5,6 @@ pretrained_root_dir = '/home/user01/Data/fetal/new_scripts/models/pretrained/'
 mme = dict(
             num_classes = 2, # wiht sigmoid activation output
             
-            fusion_type = 'graph', # 'cat', 'trans', 'graph', 'cmft'
-            
             slowfast_pretrained_chkpts= f"{pretrained_root_dir}slowfast_r50_4x16x1_kinetics400-rgb.pth",
             vidmae_pretrained_chkpts= f"{pretrained_root_dir}vit-small-p16_videomaev2-vit-g-dist-k710-pre_16x4x1_kinetics-400_20230510-25c748fd.pth",
             dropout_ratio=0.3,
