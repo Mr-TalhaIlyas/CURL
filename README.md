@@ -1,7 +1,8 @@
 # 🏥 CURL: Contrastive Ultrasound Video Representation Learning
 
 <div align="center">
-
+    
+![Badge](https://hitscounter.dev/api/hit?url=https%3A%2F%2Fgithub.com%2FMr-TalhaIlyas%2FCURL%2F&label=CURL%2Fvisitor&icon=github&color=%23198754)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-1.12+-red.svg)](https://pytorch.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
