@@ -14,7 +14,7 @@
 
 ---
 
-## 🎯 Overview
+## 🎯 Overview [Paper](https://arxiv.org/abs/2510.20214)
 
 **CURL (Contrastive Ultrasound Video Representation Learning)** is a cutting-edge self-supervised framework designed specifically for fetal movement assessment from ultrasound videos. Our method employs a **dual-contrastive loss** that captures both spatial (anatomical) and temporal (motion-based) features, enabling robust representation learning for fetal movement dynamics.
 
